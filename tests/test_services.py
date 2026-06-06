@@ -9,12 +9,15 @@ from app.services import (
     create_upload_file,
     create_upload_key,
     create_upload_link,
+    delete_upload_file_record,
     get_admin_by_session,
     get_app_settings,
     get_missing_chunks,
     is_initialized,
+    list_upload_records,
     login_admin,
     receive_chunk,
+    stop_upload_file,
     update_app_settings,
     validate_upload_key,
 )
@@ -163,6 +166,7 @@ class ServicesTest(unittest.TestCase):
             relative_path="day1/clip.txt",
             size_bytes=11,
             chunk_size=6,
+            file_identifier="clip-identity",
         )
 
         self.assertEqual(get_missing_chunks(conn, upload_file["id"]), [0, 1])
@@ -203,4 +207,124 @@ class ServicesTest(unittest.TestCase):
                 relative_path="too-big.txt",
                 size_bytes=6,
                 chunk_size=6,
+                file_identifier="too-big",
             )
+
+    def test_create_upload_file_reuses_incomplete_identifier_for_resume(self):
+        config, conn = self.make_context()
+        complete_setup(
+            conn,
+            username="admin",
+            password="secret-pass",
+            uploads_dir=config.uploads_dir,
+            chunks_dir=config.chunks_dir,
+            public_url="",
+            default_max_bytes=100,
+        )
+        key = create_upload_key(
+            conn,
+            label="resume",
+            plain_key="resume-key",
+            max_total_bytes=100,
+            destination_subdir="",
+            allow_folder_upload=True,
+            expires_at=None,
+        )
+        first = create_upload_file(
+            conn,
+            upload_key=key,
+            file_name="clip.txt",
+            relative_path="clip.txt",
+            size_bytes=11,
+            chunk_size=6,
+            file_identifier="same-file",
+        )
+        receive_chunk(config, conn, first["id"], 0, b"hello ")
+
+        second = create_upload_file(
+            conn,
+            upload_key=key,
+            file_name="clip.txt",
+            relative_path="clip.txt",
+            size_bytes=11,
+            chunk_size=6,
+            file_identifier="same-file",
+        )
+
+        self.assertEqual(second["id"], first["id"])
+        self.assertEqual(get_missing_chunks(conn, second["id"]), [1])
+
+    def test_stop_upload_file_marks_stopped_and_receive_rejects_chunks(self):
+        config, conn = self.make_context()
+        complete_setup(
+            conn,
+            username="admin",
+            password="secret-pass",
+            uploads_dir=config.uploads_dir,
+            chunks_dir=config.chunks_dir,
+            public_url="",
+            default_max_bytes=100,
+        )
+        key = create_upload_key(
+            conn,
+            label="stop",
+            plain_key="stop-key",
+            max_total_bytes=100,
+            destination_subdir="",
+            allow_folder_upload=True,
+            expires_at=None,
+        )
+        upload_file = create_upload_file(
+            conn,
+            upload_key=key,
+            file_name="clip.txt",
+            relative_path="clip.txt",
+            size_bytes=11,
+            chunk_size=6,
+            file_identifier="stop-file",
+        )
+
+        stopped = stop_upload_file(conn, upload_file["id"])
+
+        self.assertEqual(stopped["status"], "stopped")
+        with self.assertRaises(ValueError):
+            receive_chunk(config, conn, upload_file["id"], 0, b"hello ")
+
+    def test_delete_completed_upload_removes_file_and_record(self):
+        config, conn = self.make_context()
+        complete_setup(
+            conn,
+            username="admin",
+            password="secret-pass",
+            uploads_dir=config.uploads_dir,
+            chunks_dir=config.chunks_dir,
+            public_url="",
+            default_max_bytes=100,
+        )
+        key = create_upload_key(
+            conn,
+            label="delete",
+            plain_key="delete-key",
+            max_total_bytes=100,
+            destination_subdir="client",
+            allow_folder_upload=True,
+            expires_at=None,
+        )
+        upload_file = create_upload_file(
+            conn,
+            upload_key=key,
+            file_name="clip.txt",
+            relative_path="clip.txt",
+            size_bytes=11,
+            chunk_size=6,
+            file_identifier="delete-file",
+        )
+        receive_chunk(config, conn, upload_file["id"], 0, b"hello ")
+        completed = receive_chunk(config, conn, upload_file["id"], 1, b"world")
+        destination = Path(completed["destination_path"])
+        self.assertTrue(destination.exists())
+
+        delete_upload_file_record(config, conn, upload_file["id"], delete_file=True)
+
+        self.assertFalse(destination.exists())
+        self.assertEqual(list_upload_records(conn, key["id"]), [])

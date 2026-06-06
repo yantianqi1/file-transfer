@@ -1,4 +1,5 @@
 import math
+import shutil
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -263,26 +264,68 @@ def create_upload_file(
     relative_path: str,
     size_bytes: int,
     chunk_size: int,
+    file_identifier: Optional[str] = None,
 ) -> dict:
     if size_bytes <= 0:
         raise ValueError("File size must be positive")
     if chunk_size <= 0:
         raise ValueError("Chunk size must be positive")
-    if _key_received_total(conn, upload_key["id"]) + size_bytes > upload_key["max_total_bytes"]:
-        raise ValueError("Upload key size limit exceeded")
 
     normalized_path = normalize_relative_path(relative_path or file_name)
     if not bool(upload_key["allow_folder_upload"]) and "/" in normalized_path:
         normalized_path = normalize_relative_path(Path(normalized_path).name)
 
+    normalized_identifier = (file_identifier or "").strip() or None
+    if normalized_identifier:
+        existing = conn.execute(
+            """
+            SELECT * FROM upload_files
+            WHERE upload_key_id = ?
+              AND file_identifier = ?
+              AND file_name = ?
+              AND relative_path = ?
+              AND size_bytes = ?
+              AND status != 'completed'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (
+                upload_key["id"],
+                normalized_identifier,
+                file_name,
+                normalized_path,
+                size_bytes,
+            ),
+        ).fetchone()
+        if existing is not None:
+            if existing["status"] == "stopped":
+                conn.execute(
+                    "UPDATE upload_files SET status = 'waiting' WHERE id = ?",
+                    (existing["id"],),
+                )
+                conn.commit()
+                return get_upload_file(conn, existing["id"])
+            return _dict(existing)
+
+    if _key_received_total(conn, upload_key["id"]) + size_bytes > upload_key["max_total_bytes"]:
+        raise ValueError("Upload key size limit exceeded")
+
     total_chunks = math.ceil(size_bytes / chunk_size)
     cursor = conn.execute(
         """
         INSERT INTO upload_files
-            (upload_key_id, file_name, relative_path, size_bytes, chunk_size, total_chunks)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (upload_key_id, file_identifier, file_name, relative_path, size_bytes, chunk_size, total_chunks)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (upload_key["id"], file_name, normalized_path, size_bytes, chunk_size, total_chunks),
+        (
+            upload_key["id"],
+            normalized_identifier,
+            file_name,
+            normalized_path,
+            size_bytes,
+            chunk_size,
+            total_chunks,
+        ),
     )
     upload_file_id = cursor.lastrowid
     for index in range(total_chunks):
@@ -328,6 +371,10 @@ def receive_chunk(
     body: bytes,
 ) -> dict:
     upload_file = get_upload_file(conn, upload_file_id)
+    if upload_file["status"] == "stopped":
+        raise ValueError("Upload has been stopped")
+    if upload_file["status"] == "completed":
+        return upload_file
     chunk = conn.execute(
         """
         SELECT * FROM upload_chunks
@@ -398,6 +445,40 @@ def receive_chunk(
     )
     conn.commit()
     return get_upload_file(conn, upload_file_id)
+
+
+def stop_upload_file(conn: sqlite3.Connection, upload_file_id: int) -> dict:
+    upload_file = get_upload_file(conn, upload_file_id)
+    if upload_file["status"] != "completed":
+        conn.execute(
+            "UPDATE upload_files SET status = 'stopped' WHERE id = ?",
+            (upload_file_id,),
+        )
+        conn.commit()
+    return get_upload_file(conn, upload_file_id)
+
+
+def delete_upload_file_record(
+    config: AppConfig,
+    conn: sqlite3.Connection,
+    upload_file_id: int,
+    delete_file: bool,
+) -> None:
+    upload_file = get_upload_file(conn, upload_file_id)
+    if delete_file and upload_file["destination_path"]:
+        destination = Path(upload_file["destination_path"])
+        try:
+            upload_root = config.uploads_dir.resolve()
+            destination_resolved = destination.resolve()
+            if upload_root == destination_resolved or upload_root in destination_resolved.parents:
+                destination.unlink(missing_ok=True)
+        except FileNotFoundError:
+            pass
+
+    chunk_dir = config.chunks_dir / str(upload_file["upload_key_id"]) / str(upload_file_id)
+    shutil.rmtree(chunk_dir, ignore_errors=True)
+    conn.execute("DELETE FROM upload_files WHERE id = ?", (upload_file_id,))
+    conn.commit()
 
 
 def list_upload_records(conn: sqlite3.Connection, upload_key_id: Optional[int] = None) -> list[dict]:

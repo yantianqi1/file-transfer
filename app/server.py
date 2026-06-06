@@ -13,6 +13,7 @@ from app.services import (
     create_upload_file,
     create_upload_key,
     create_upload_link,
+    delete_upload_file_record,
     delete_upload_key,
     disable_upload_key,
     get_admin_by_session,
@@ -24,6 +25,7 @@ from app.services import (
     list_upload_records,
     login_admin,
     receive_chunk,
+    stop_upload_file,
     update_app_settings,
     validate_upload_key,
 )
@@ -185,6 +187,7 @@ class FileTransferHandler(BaseHTTPRequestHandler):
                     relative_path=payload.get("relativePath", "") or payload.get("fileName", ""),
                     size_bytes=int(payload.get("sizeBytes") or 0),
                     chunk_size=int(payload.get("chunkSize") or DEFAULT_CHUNK_SIZE),
+                    file_identifier=payload.get("fileIdentifier") or None,
                 )
                 self._send_json({"file": upload_file, "missingChunks": get_missing_chunks(conn, upload_file["id"])}, HTTPStatus.CREATED)
                 return
@@ -211,9 +214,29 @@ class FileTransferHandler(BaseHTTPRequestHandler):
                 self._send_json({"file": upload_file, "missingChunks": get_missing_chunks(conn, upload_file["id"])})
                 return
 
+            stop_match = re.fullmatch(r"/api/upload/files/(\d+)/stop", path)
+            if self.command == "POST" and stop_match:
+                upload_file_id = int(stop_match.group(1))
+                self._require_upload_file_owner(conn, upload_file_id)
+                self._send_json({"file": stop_upload_file(conn, upload_file_id)})
+                return
+
             if self.command == "GET" and path == "/api/upload/records":
                 key = self._require_upload_key(conn, self.headers.get("X-Upload-Key", ""))
                 self._send_json({"records": list_upload_records(conn, key["id"])})
+                return
+
+            record_delete_match = re.fullmatch(r"/api/admin/records/(\d+)", path)
+            if self.command == "DELETE" and record_delete_match:
+                self._require_admin(conn)
+                payload = self._read_json()
+                delete_upload_file_record(
+                    self.config,
+                    conn,
+                    int(record_delete_match.group(1)),
+                    delete_file=bool(payload.get("deleteFile", True)),
+                )
+                self._send_json({"ok": True})
                 return
 
             raise ApiError(HTTPStatus.NOT_FOUND, "Route not found")

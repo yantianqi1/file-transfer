@@ -1,6 +1,7 @@
 const CHUNK_SIZE = 64 * 1024 * 1024;
 let activeUploadKey = "";
 let activeKeyInfo = null;
+const uploadTasks = new Map();
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -89,6 +90,7 @@ function renderKeys(keys) {
 }
 
 function renderRecords(target, records) {
+  const isAdmin = target.id === "adminRecords";
   target.innerHTML = records.length
     ? records.map((record) => `
       <div class="table-row">
@@ -96,6 +98,7 @@ function renderRecords(target, records) {
         <div>${bytes(record.size_bytes)}</div>
         <div>${escapeHtml(record.status)}</div>
         <div>${record.completed_at ? escapeHtml(record.completed_at) : "-"}</div>
+        ${isAdmin ? `<div><button data-delete-record="${record.id}" type="button">删除文件</button></div>` : ""}
       </div>
     `).join("")
     : `<p class="muted">暂无记录</p>`;
@@ -114,6 +117,12 @@ function escapeHtml(value) {
 async function uploadFiles(files) {
   for (const file of files) {
     const relativePath = file.webkitRelativePath || file.name;
+    const fileIdentifier = [
+      relativePath,
+      file.name,
+      file.size,
+      file.lastModified || 0,
+    ].join(":");
     const row = document.createElement("div");
     row.className = "queue-row";
     row.innerHTML = `
@@ -121,34 +130,43 @@ async function uploadFiles(files) {
       <div>${bytes(file.size)}</div>
       <div><div class="progress"><span></span></div></div>
       <div class="muted">等待</div>
+      <div><button type="button" data-stop-local="${escapeHtml(fileIdentifier)}">停止</button></div>
     `;
     $("#queue").prepend(row);
     const bar = row.querySelector(".progress span");
     const state = row.querySelector(".muted");
+    const controller = new AbortController();
+    uploadTasks.set(fileIdentifier, { controller, uploadFileId: null });
 
     try {
       const created = await api("/api/upload/files", {
         method: "POST",
+        signal: controller.signal,
         body: JSON.stringify({
           uploadKey: activeUploadKey,
           fileName: file.name,
           relativePath,
           sizeBytes: file.size,
           chunkSize: CHUNK_SIZE,
+          fileIdentifier,
         }),
       });
       const uploadFile = created.file;
+      uploadTasks.get(fileIdentifier).uploadFileId = uploadFile.id;
       const missing = created.missingChunks;
       const startedAt = Date.now();
-      let uploaded = file.size - (missing.length * CHUNK_SIZE);
+      let uploaded = uploadFile.received_bytes || 0;
+      bar.style.width = `${Math.min(100, Math.round((uploaded / file.size) * 100))}%`;
 
       for (const index of missing) {
+        if (controller.signal.aborted) throw new Error("已停止");
         const start = index * CHUNK_SIZE;
         const chunk = file.slice(start, Math.min(file.size, start + CHUNK_SIZE));
         state.textContent = "上传中";
         await api(`/api/upload/files/${uploadFile.id}/chunks/${index}`, {
           method: "PUT",
           headers: { "X-Upload-Key": activeUploadKey },
+          signal: controller.signal,
           body: chunk,
         });
         uploaded += chunk.size;
@@ -161,8 +179,10 @@ async function uploadFiles(files) {
       state.textContent = "完成";
       await refreshUploadRecords();
     } catch (error) {
-      state.textContent = error.message;
-      state.classList.add("failed");
+      state.textContent = controller.signal.aborted ? "已停止" : error.message;
+      state.classList.toggle("failed", !controller.signal.aborted);
+    } finally {
+      uploadTasks.delete(fileIdentifier);
     }
   }
 }
@@ -194,6 +214,30 @@ document.addEventListener("click", async (event) => {
   const disableButton = event.target.closest("[data-disable-key]");
   if (disableButton) {
     await api(`/api/admin/keys/${disableButton.dataset.disableKey}/disable`, { method: "POST" });
+    await refreshAdmin();
+  }
+
+  const stopButton = event.target.closest("[data-stop-local]");
+  if (stopButton) {
+    const task = uploadTasks.get(stopButton.dataset.stopLocal);
+    if (task) {
+      task.controller.abort();
+      if (task.uploadFileId) {
+        await api(`/api/upload/files/${task.uploadFileId}/stop`, {
+          method: "POST",
+          headers: { "X-Upload-Key": activeUploadKey },
+        });
+        await refreshUploadRecords();
+      }
+    }
+  }
+
+  const deleteRecordButton = event.target.closest("[data-delete-record]");
+  if (deleteRecordButton) {
+    await api(`/api/admin/records/${deleteRecordButton.dataset.deleteRecord}`, {
+      method: "DELETE",
+      body: JSON.stringify({ deleteFile: true }),
+    });
     await refreshAdmin();
   }
 });

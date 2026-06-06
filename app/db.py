@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS upload_keys (
 CREATE TABLE IF NOT EXISTS upload_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     upload_key_id INTEGER NOT NULL REFERENCES upload_keys(id) ON DELETE CASCADE,
+    file_identifier TEXT,
     file_name TEXT NOT NULL,
     relative_path TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
@@ -57,6 +58,9 @@ CREATE TABLE IF NOT EXISTS upload_files (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_upload_files_identifier
+ON upload_files (upload_key_id, file_identifier);
 
 CREATE TABLE IF NOT EXISTS upload_chunks (
     upload_file_id INTEGER NOT NULL REFERENCES upload_files(id) ON DELETE CASCADE,
@@ -82,6 +86,18 @@ def connect(config: AppConfig) -> sqlite3.Connection:
 
 def initialize(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(upload_files)").fetchall()
+    }
+    if "file_identifier" not in columns:
+        conn.execute("ALTER TABLE upload_files ADD COLUMN file_identifier TEXT")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_upload_files_identifier
+            ON upload_files (upload_key_id, file_identifier)
+            """
+        )
     conn.commit()
 
 
