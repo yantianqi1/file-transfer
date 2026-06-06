@@ -35,6 +35,43 @@ async function api(path, options = {}) {
   return payload;
 }
 
+function uploadChunkWithProgress(path, chunk, uploadKey, signal, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", path);
+    xhr.setRequestHeader("X-Upload-Key", uploadKey);
+
+    const abort = () => xhr.abort();
+    if (signal.aborted) {
+      reject(new Error("已停止"));
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded);
+    };
+    xhr.onload = () => {
+      signal.removeEventListener("abort", abort);
+      const payload = JSON.parse(xhr.responseText || "{}");
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(payload);
+      } else {
+        reject(new Error(payload.error || `HTTP ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => {
+      signal.removeEventListener("abort", abort);
+      reject(new Error("网络连接中断"));
+    };
+    xhr.onabort = () => {
+      signal.removeEventListener("abort", abort);
+      reject(new Error("已停止"));
+    };
+    xhr.send(chunk);
+  });
+}
+
 async function checkSetup() {
   const status = await api("/api/setup/status");
   if (!status.initialized) {
@@ -162,12 +199,12 @@ async function uploadFiles(files) {
         if (controller.signal.aborted) throw new Error("已停止");
         const start = index * CHUNK_SIZE;
         const chunk = file.slice(start, Math.min(file.size, start + CHUNK_SIZE));
-        state.textContent = "上传中";
-        await api(`/api/upload/files/${uploadFile.id}/chunks/${index}`, {
-          method: "PUT",
-          headers: { "X-Upload-Key": activeUploadKey },
-          signal: controller.signal,
-          body: chunk,
+        await uploadChunkWithProgress(`/api/upload/files/${uploadFile.id}/chunks/${index}`, chunk, activeUploadKey, controller.signal, (chunkUploaded) => {
+          const currentUploaded = uploaded + chunkUploaded;
+          const percent = Math.min(100, Math.round((currentUploaded / file.size) * 100));
+          bar.style.width = `${percent}%`;
+          const seconds = Math.max(1, (Date.now() - startedAt) / 1000);
+          state.textContent = `${percent}% · ${bytes(currentUploaded / seconds)}/s`;
         });
         uploaded += chunk.size;
         const percent = Math.min(100, Math.round((uploaded / file.size) * 100));
