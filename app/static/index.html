@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>文件中转站</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>文件中转站</h1>
+        <p id="subtitle">给大体积素材准备的临时上传入口</p>
+      </div>
+      <nav class="tabs">
+        <button class="tab active" data-view="upload">上传</button>
+        <button class="tab" data-view="admin">管理</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="setupView" class="panel hidden">
+        <h2>初始化</h2>
+        <form id="setupForm" class="grid-form">
+          <label>管理员账号<input name="username" autocomplete="username" required></label>
+          <label>管理员密码<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+          <label>公开访问地址<input name="publicUrl" placeholder="https://upload.example.com"></label>
+          <label>默认上限 GB<input name="defaultMaxGb" type="number" value="100" min="1"></label>
+          <button type="submit">完成初始化</button>
+        </form>
+      </section>
+
+      <section id="uploadView" class="workspace">
+        <section id="keyGate" class="panel">
+          <h2>输入上传密钥</h2>
+          <form id="keyForm" class="inline-form">
+            <input name="uploadKey" placeholder="Upload key" autocomplete="off" required>
+            <button type="submit">继续</button>
+          </form>
+          <p class="status" id="keyStatus"></p>
+        </section>
+
+        <section id="uploader" class="panel hidden">
+          <div class="section-head">
+            <div>
+              <h2 id="uploadTitle">上传素材</h2>
+              <p id="uploadLimit"></p>
+            </div>
+            <button id="changeKey" type="button">更换密钥</button>
+          </div>
+          <div class="actions">
+            <label class="file-button">
+              选择文件
+              <input id="fileInput" type="file" multiple>
+            </label>
+            <label class="file-button" id="folderButton">
+              选择文件夹
+              <input id="folderInput" type="file" webkitdirectory multiple>
+            </label>
+          </div>
+          <div id="queue" class="queue"></div>
+          <h3>上传记录</h3>
+          <div id="uploadRecords" class="table"></div>
+        </section>
+      </section>
+
+      <section id="adminView" class="workspace hidden">
+        <section id="adminLogin" class="panel">
+          <h2>管理员登录</h2>
+          <form id="loginForm" class="inline-form">
+            <input name="username" placeholder="账号" autocomplete="username" required>
+            <input name="password" type="password" placeholder="密码" autocomplete="current-password" required>
+            <button type="submit">登录</button>
+          </form>
+          <p class="status" id="loginStatus"></p>
+        </section>
+
+        <section id="adminDashboard" class="panel hidden">
+          <div class="section-head">
+            <h2>上传密钥</h2>
+            <button id="refreshAdmin" type="button">刷新</button>
+          </div>
+          <form id="settingsForm" class="grid-form">
+            <label>公开访问地址<input name="publicUrl" placeholder="https://upload.example.com"></label>
+            <label>默认上限 GB<input name="defaultMaxGb" type="number" value="100" min="1"></label>
+            <button type="submit">保存公开配置</button>
+          </form>
+          <form id="keyCreateForm" class="grid-form">
+            <label>标签<input name="label" placeholder="张三每周素材" required></label>
+            <label>目标子目录<input name="destinationSubdir" placeholder="project-a"></label>
+            <label>总上限 GB<input name="maxTotalGb" type="number" value="100" min="1"></label>
+            <label class="checkbox"><input name="allowFolderUpload" type="checkbox" checked>允许文件夹上传</label>
+            <button type="submit">创建免密上传链接</button>
+          </form>
+          <div id="latestLink" class="copy-box hidden">
+            <input id="latestLinkInput" readonly>
+            <button id="copyLatestLink" type="button">复制链接</button>
+          </div>
+          <div id="keyList" class="table"></div>
+          <h3>上传记录</h3>
+          <div id="adminRecords" class="table"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
