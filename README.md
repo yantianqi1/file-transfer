@@ -30,10 +30,16 @@ ghcr.io/你的GitHub用户名/你的仓库名:latest
 
 ## NAS Docker Compose 部署
 
-如果你是在 NAS 上部署，推荐复制 `compose.nas.yml`。只需要把镜像名改成你自己的 GHCR 镜像：
+如果你是在 NAS 上部署，推荐复制 `compose.nas.yml`。国内网络拉 GHCR 慢时，可以使用南京大学 GHCR 镜像加速入口：
 
 ```yaml
-image: ghcr.io/你的GitHub用户名/你的仓库名:latest
+image: ghcr.nju.edu.cn/yantianqi1/file-transfer:latest
+```
+
+原始 GHCR 镜像地址是：
+
+```text
+ghcr.io/yantianqi1/file-transfer:latest
 ```
 
 然后运行：

@@ -1,6 +1,6 @@
 services:
   file-transfer:
-    image: ghcr.io/yantianqi1/file-transfer:latest
+    image: ghcr.nju.edu.cn/yantianqi1/file-transfer:latest
     container_name: file-transfer
     ports:
       - "8009:8080"
