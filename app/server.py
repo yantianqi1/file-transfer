@@ -32,7 +32,7 @@ from app.services import (
 
 
 STATIC_DIR = Path(__file__).parent / "static"
-DEFAULT_CHUNK_SIZE = 64 * 1024 * 1024
+DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024
 
 
 class ApiError(Exception):

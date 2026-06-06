@@ -1,4 +1,4 @@
-const CHUNK_SIZE = 64 * 1024 * 1024;
+const CHUNK_SIZE = 8 * 1024 * 1024;
 let activeUploadKey = "";
 let activeKeyInfo = null;
 const uploadTasks = new Map();
