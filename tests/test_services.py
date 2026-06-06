@@ -43,6 +43,39 @@ class ServicesTest(unittest.TestCase):
         _config, conn = self.make_context()
         self.assertFalse(is_initialized(conn))
 
+    def test_initialize_migrates_old_upload_files_table(self):
+        config, conn = self.make_context()
+        conn.execute("DROP INDEX IF EXISTS idx_upload_files_identifier")
+        conn.execute("ALTER TABLE upload_files RENAME TO upload_files_old")
+        conn.execute(
+            """
+            CREATE TABLE upload_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                upload_key_id INTEGER NOT NULL REFERENCES upload_keys(id) ON DELETE CASCADE,
+                file_name TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                chunk_size INTEGER NOT NULL,
+                total_chunks INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'waiting',
+                received_bytes INTEGER NOT NULL DEFAULT 0,
+                destination_path TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                completed_at TEXT
+            )
+            """
+        )
+        conn.execute("DROP TABLE upload_files_old")
+        conn.commit()
+
+        initialize(conn)
+
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(upload_files)").fetchall()
+        }
+        self.assertIn("file_identifier", columns)
+
     def test_complete_setup_creates_admin_and_settings(self):
         config, conn = self.make_context()
         complete_setup(

@@ -59,9 +59,6 @@ CREATE TABLE IF NOT EXISTS upload_files (
     completed_at TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_upload_files_identifier
-ON upload_files (upload_key_id, file_identifier);
-
 CREATE TABLE IF NOT EXISTS upload_chunks (
     upload_file_id INTEGER NOT NULL REFERENCES upload_files(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
@@ -92,12 +89,12 @@ def initialize(conn: sqlite3.Connection) -> None:
     }
     if "file_identifier" not in columns:
         conn.execute("ALTER TABLE upload_files ADD COLUMN file_identifier TEXT")
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_upload_files_identifier
-            ON upload_files (upload_key_id, file_identifier)
-            """
-        )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_upload_files_identifier
+        ON upload_files (upload_key_id, file_identifier)
+        """
+    )
     conn.commit()
 
 
