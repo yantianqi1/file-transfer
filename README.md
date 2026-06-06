@@ -45,7 +45,7 @@ docker compose -f compose.nas.yml up -d
 打开：
 
 ```text
-http://你的设备IP:8080
+http://你的设备IP:8009
 ```
 
 第一次访问会进入初始化向导。初始化后，上传限制、公开访问地址、上传入口都在网页里配置，不需要再改应用配置文件。
@@ -76,7 +76,7 @@ https://upload.你的域名
 在内网穿透还没配置好之前，本地测试可以先留空，或者填：
 
 ```text
-http://你的局域网IP:8080
+http://你的局域网IP:8009
 ```
 
 等 VPS、FRP、Caddy/Nginx 配好后，再到管理员后台把公开访问地址改成 Cloudflare 域名，例如：
